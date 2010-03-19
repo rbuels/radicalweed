@@ -78,7 +78,7 @@ sub _default {
 ############## HELPER SUBS ######################
 
 sub read_config {
-    my %h = Config::General->new('./radicalweed2.conf')->getall;
+    my %h = Config::General->new('./radicalweed.conf')->getall;
     lock_hash %h;
     return %h;
 }
