@@ -3,8 +3,6 @@ use strict;
 use warnings;
 
 chdir $ARGV[0] if @ARGV;
-
-use local::lib './local_lib';
 use POE qw(Component::IRC);
 use Config::General;
 use Hash::Util qw/ lock_hash /;
