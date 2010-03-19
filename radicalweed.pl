@@ -11,7 +11,7 @@ use Hash::Util qw/ lock_hash /;
 #use DB_File::Lock;
 
 my %config = read_config();
-lock_hash %config;while( my ($server_addr,$server) = each %{$config{server}} ) {
+while( my ($server_addr,$server) = each %{$config{server}} ) {
 
     print "setting up $server_addr...\n";
 
@@ -25,6 +25,7 @@ lock_hash %config;while( my ($server_addr,$server) = each %{$config{server}} ) {
     POE::Session->create(
         package_states => [main => [qw[ _start _default ]]],
         inline_states => {
+            # on server welcome message
             irc_001  => sub {
                 my $sender = $_[SENDER];
 
@@ -33,19 +34,23 @@ lock_hash %config;while( my ($server_addr,$server) = each %{$config{server}} ) {
                 # specified server.
                 my $irc = $sender->get_heap();
 
-                print "Connected to ", $irc->server_name(), "\n";
+                print "$server_addr: connected to ", $irc->server_name, "\n";
 
                 # we join our channels
                 $irc->yield( join => "#$_" ) for keys %{ $server->{channel} };
             },
+            # when someone joins a channel
             irc_join => sub {
                 my ( $sender, $who, $where, $what ) = @_[ SENDER, ARG0 .. ARG2 ];
+                # parse out the nick and channel
                 my $nick = ( split /!/, $who )[0];
                 my $channel = ref $where ? $where->[0] : $where;
                 $channel =~ s/^#//;
 
+                # give them op if they are in the (reread) config
                 my %config = read_config();
                 if( exists $config{server}{$server_addr}{channel}{$channel}{ops}{$nick} ) {
+                    print "$server_addr: Gave op to $nick in #$channel.\n";
                     $irc->yield( mode => "#$channel" => '+o' => $nick );
                 }
             },
@@ -67,24 +72,21 @@ sub _start {
     return;
 }
 
-sub read_config {
-    return Config::General->new('./radicalweed2.conf')->getall;
-}
-
-# sub irc_public {
-#     my ( $sender, $who, $where, $what ) = @_[ SENDER, ARG0 .. ARG2 ];
-#     my $nick = ( split /!/, $who )[0];
-#     my $channel = $where->[0];
-
-#     if ( my ($rot13) = $what =~ /^rot13 (.+)/ ) {
-#         $rot13 =~ tr[a-zA-Z][n-za-mN-ZA-M];
-#         $irc->yield( privmsg => $channel => "$nick: $rot13" );
-#     }
-#     return;
-# }
-
 # We registered for all events, this will produce some debug info.
 sub _default {
+    #_print_debug(@_)
+}
+
+############## HELPER SUBS ######################
+
+sub read_config {
+    my %h = Config::General->new('./radicalweed2.conf')->getall;
+    lock_hash %h;
+    return %h;
+}
+
+
+sub _print_debug {
     my ( $event, $args ) = @_[ ARG0 .. $#_ ];
     my @output = ("$event: ");
 
