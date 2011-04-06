@@ -10,6 +10,12 @@ use Hash::Util qw/ lock_hash /;
 
 my %config = read_config();
 while( my ($server_addr,$server) = each %{$config{server}} ) {
+    my  @username;
+
+    if( exists $server->{username} && defined $server->{username} ) {
+        @username = ( username => $server->{username} );
+
+    }
 
     print "setting up $server_addr...\n";
 
@@ -17,6 +23,7 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
     my $irc = POE::Component::IRC->spawn(
         nick    => $server->{nick},
         ircname => $server->{description},
+        @username,
         server  => $server_addr,
        ) or die "Oh noooo! $!";
 
