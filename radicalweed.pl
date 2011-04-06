@@ -46,7 +46,7 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
                 $channel =~ s/^#//;
 
                 # give them op if they are in the (reread) config
-                my %config = read_config();
+                %config = read_config();
                 if( exists $config{server}{$server_addr}{channel}{$channel}{ops}{$nick} ) {
                     print "$server_addr: Gave op to $nick in #$channel.\n";
                     $irc->yield( mode => "#$channel" => '+o' => $nick );
