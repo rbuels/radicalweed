@@ -59,6 +59,25 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
                     $irc->yield( mode => "#$channel" => '+o' => $nick );
                 }
             },
+
+            irc_notice => sub {
+                my ( $sender, $what, $message ) = @_[ ARG0 .. ARG2 ];
+                my  $i = 0;
+
+                if( $sender =~ /NickServ/i && $message =~ /This nickname is registered/ ) {
+
+                    # do we have a password for our nick for this server?
+                    if( exists $config{server}{$server_addr}{password} ) {
+                        # Register our nick
+                        $irc->yield( privmsg => 'NickServ', "identify " .  $config{server}{$server_addr}{password} );
+                        return;
+
+                    }
+
+                }
+
+            },
+
         },
         heap => { irc  => $irc },
        );
