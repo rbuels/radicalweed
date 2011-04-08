@@ -59,6 +59,8 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
                 my $channel = ref $where ? $where->[0] : $where;
                 $channel =~ s/^#//;
 
+                _inline_debug( 'irc_mode', @_[ ARG0 .. $#_ ] );
+
                 # See if we have op privileges before we go gallivanting about
                 # attempting to give +op and ticking off the server
 
@@ -82,6 +84,8 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
                 my $channel = ref $where ? $where->[0] : $where;
                 $channel =~ s/^#//;
 
+                _inline_debug( 'irc_mode', @_[ ARG0 .. $#_ ] );
+
                 if( defined $towhom && $towhom eq $server->{nick} ) {
                     if( $what eq '+o' ) {
                         # I just received op privileges
@@ -101,6 +105,8 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
             irc_notice => sub {
                 my ( $sender, $what, $message ) = @_[ ARG0 .. ARG2 ];
                 my  $i = 0;
+
+                _inline_debug( 'irc_mode', @_[ ARG0 .. $#_ ] );
 
                 if( $sender =~ /NickServ/i && $message =~ /This nickname is registered/ ) {
 
@@ -162,4 +168,31 @@ sub _print_debug {
     }
     print join ' ', @output, "\n";
     return 0;
+}
+
+sub _inline_debug {
+    my ( $event, @args ) = @_;
+
+    return 0;   # disable debugging
+
+    # skip logging events we don't care about
+    return 0 if grep /^$event$/, qw( irc_ping irc_372 );
+
+    # format the rest
+    my @output = ("$event: ");
+
+    for my $arg (@args) {
+        if ( ref $arg eq 'ARRAY' ) {
+            push( @output, '[' . join( ', ', @$arg ) . ']' );
+
+        }
+        else {
+            push( @output, "'$arg'" );
+
+        }
+
+    }
+    print join ' ', @output, "\n";
+    return 0;
+
 }
