@@ -8,7 +8,8 @@ use Config::General;
 use Hash::Util qw/ lock_hash /;
 #use DB_File::Lock;
 
-my %config = read_config();
+my  %opstate;
+my  %config = read_config();
 while( my ($server_addr,$server) = each %{$config{server}} ) {
     my  @username;
 
@@ -41,6 +42,12 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
 
                 print "$server_addr: connected to ", $irc->server_name, "\n";
 
+                for my $channel ( keys %{ $server->{channel} } ) {
+                    # flag that we don't have op yet for this channel
+                    $opstate{$server_addr}{$channel}{state} = 0;
+
+                }
+
                 # we join our channels
                 $irc->yield( join => "#$_" ) for keys %{ $server->{channel} };
             },
@@ -52,13 +59,44 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
                 my $channel = ref $where ? $where->[0] : $where;
                 $channel =~ s/^#//;
 
-                # give them op if they are in the (reread) config
-                %config = read_config();
-                if( exists $config{server}{$server_addr}{channel}{$channel}{ops}{$nick} ) {
-                    print "$server_addr: Gave op to $nick in #$channel.\n";
-                    $irc->yield( mode => "#$channel" => '+o' => $nick );
+                # See if we have op privileges before we go gallivanting about
+                # attempting to give +op and ticking off the server
+
+                if( $opstate{$server_addr}{$channel}{state} ) {
+
+                    # give them op if they are in the (reread) config
+                    %config = read_config();
+                    if( exists $config{server}{$server_addr}{channel}{$channel}{ops}{$nick} ) {
+                        print "$server_addr: Gave op to $nick in #$channel.\n";
+                        $irc->yield( mode => "#$channel" => '+o' => $nick );
+                    }
+
                 }
+
             },
+
+
+            irc_mode => sub {
+                my ( $who, $where, $what, $towhom ) = @_[ ARG0 .. ARG3 ];
+                my $nick = ( split /!/, $who )[0];
+                my $channel = ref $where ? $where->[0] : $where;
+                $channel =~ s/^#//;
+
+                if( defined $towhom && $towhom eq $server->{nick} ) {
+                    if( $what eq '+o' ) {
+                        # I just received op privileges
+                        $opstate{$server_addr}{$channel}{state} = 1;
+
+                    }
+                    elsif( $what eq '-o' ) {
+                        $opstate{$server_addr}{$channel}{state} = 0;
+
+                    }
+
+                }
+
+            },
+
 
             irc_notice => sub {
                 my ( $sender, $what, $message ) = @_[ ARG0 .. ARG2 ];
