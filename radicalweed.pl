@@ -46,11 +46,58 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
                     # flag that we don't have op yet for this channel
                     $opstate{$server_addr}{$channel}{state} = 0;
 
+                    # List of known users that are logged in this channel that
+                    # we need to +op once we can
+                    %{$opstate{$server_addr}{$channel}{noop}} = ();
+
                 }
 
                 # we join our channels
                 $irc->yield( join => "#$_" ) for keys %{ $server->{channel} };
             },
+
+
+            # notification of who is on the list after joining
+            irc_353 => sub {
+                my ( $args ) = $_[ ARG2 ];
+                my  $channel = @$args[1];
+                my  @names = split /\s+/, @$args[2];
+                $channel =~ s/^#//;
+
+                _inline_debug( 'irc_353', @_[ ARG0 .. $#_ ] );
+
+                # Don't bother processing unless we're an op
+                return
+                    unless $opstate{$server_addr}{$channel}{state};
+
+
+                # Refresh our configuration
+                %config = read_config();
+
+                # Build our list
+                for my $name ( @names ) {
+                    next if $name =~ /^@/;              # already an op
+                    next if $name eq $server->{nick};   # of course we're in the channel!
+
+                    next unless grep /^$name$/, keys %{$config{server}{$server_addr}{channel}{$channel}{ops}};
+
+                    $opstate{$server_addr}{$channel}{noop}{$name}++;
+
+                }
+
+                # did we find any?
+                if( keys %{ $opstate{$server_addr}{$channel}{noop} } ) {
+                    # Start the cascading of providing retroactive op privs
+                    my  $nick = (keys  %{ $opstate{$server_addr}{$channel}{noop} })[0];
+                    delete $opstate{$server_addr}{$channel}{noop}{$nick};
+                    print "$server_addr: Gave op to $nick in #$channel.\n";
+                    $irc->yield( mode => "#$channel" => '+o' => $nick );
+
+                }
+
+            },
+
+
             # when someone joins a channel
             irc_join => sub {
                 my ( $sender, $who, $where, $what ) = @_[ SENDER, ARG0 .. ARG2 ];
@@ -59,7 +106,7 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
                 my $channel = ref $where ? $where->[0] : $where;
                 $channel =~ s/^#//;
 
-                _inline_debug( 'irc_mode', @_[ ARG0 .. $#_ ] );
+                _inline_debug( 'irc_join', @_[ ARG0 .. $#_ ] );
 
                 # See if we have op privileges before we go gallivanting about
                 # attempting to give +op and ticking off the server
@@ -86,16 +133,46 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
 
                 _inline_debug( 'irc_mode', @_[ ARG0 .. $#_ ] );
 
-                if( defined $towhom && $towhom eq $server->{nick} ) {
-                    if( $what eq '+o' ) {
-                        # I just received op privileges
-                        $opstate{$server_addr}{$channel}{state} = 1;
-                        print "$server_addr: Received operator privileges in #$channel\n";
+                if( defined $towhom ) {
+                    if( $towhom eq $server->{nick} ) {
+                        if( $what eq '+o' ) {
+                            # I just received op privileges
+                            $opstate{$server_addr}{$channel}{state} = 1;
+                            print "$server_addr: Received operator privileges in #$channel\n";
+
+                            # Do something about it
+
+                            # Reset our list of known users that need op privs
+                            %{$opstate{$server_addr}{$channel}{noop}} = ();
+
+                            # Query the server for a new list
+                            $irc->yield( names => "#$channel" );
+
+                        }
+                        elsif( $what eq '-o' ) {
+                            $opstate{$server_addr}{$channel}{state} = 0;
+                            print "$server_addr: Lost operator privileges in #$channel\n";
+
+                        }
 
                     }
-                    elsif( $what eq '-o' ) {
-                        $opstate{$server_addr}{$channel}{state} = 0;
-                        print "$server_addr: Lost operator privileges in #$channel\n";
+                    elsif( $what eq '+o' ) {
+                        # someone got privileges (by either us or elsewhere, remove them
+                        delete $opstate{$server_addr}{$channel}{noop}{$towhom}
+                            if exists $opstate{$server_addr}{$channel}{noop}{$towhom};
+
+                        # Use this as a hook to see if we have any others to bump
+                        if( $opstate{$server_addr}{$channel}{state} ) {
+                            if( keys %{ $opstate{$server_addr}{$channel}{noop} } ) {
+                                # Start the cascading of providing retroactive op privs
+                                my  $nick = (keys  %{ $opstate{$server_addr}{$channel}{noop} })[0];
+                                delete $opstate{$server_addr}{$channel}{noop}{$nick};
+                                print "$server_addr: Gave op to $nick in #$channel.\n";
+                                $irc->yield( mode => "#$channel" => '+o' => $nick );
+
+                            }
+
+                        }
 
                     }
 
@@ -158,6 +235,11 @@ sub read_config {
 
 sub _print_debug {
     my ( $event, $args ) = @_[ ARG0 .. $#_ ];
+
+    # skip logging events we don't care about
+    return 0 if grep /^$event$/, qw( irc_ping irc_372 );
+
+    # format the rest
     my @output = ("$event: ");
 
     for my $arg (@$args) {
