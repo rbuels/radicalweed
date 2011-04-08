@@ -90,10 +90,12 @@ while( my ($server_addr,$server) = each %{$config{server}} ) {
                     if( $what eq '+o' ) {
                         # I just received op privileges
                         $opstate{$server_addr}{$channel}{state} = 1;
+                        print "$server_addr: Received operator privileges in #$channel\n";
 
                     }
                     elsif( $what eq '-o' ) {
                         $opstate{$server_addr}{$channel}{state} = 0;
+                        print "$server_addr: Lost operator privileges in #$channel\n";
 
                     }
 
